@@ -414,10 +414,11 @@ h1{font-size:25px;font-weight:650;letter-spacing:-.4px;line-height:1.25}
 .mini-btn.danger:hover{border-color:#f6d5d5;color:#d04545;background:#fff8f8}
 
 .member-row{
-  display:grid;grid-template-columns:34px 1fr 110px 150px;
+  display:grid;grid-template-columns:34px 1fr 110px 78px;
   gap:12px;align-items:center;padding:11px 14px;margin-bottom:8px;
   border:1px solid #f2f3f7;border-radius:12px;background:#fbfbfd;
 }
+.member-row .m-actions{display:flex;justify-content:flex-end}
 .member-row:last-child{margin-bottom:0}
 .m-avatar{
   width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
@@ -448,7 +449,7 @@ h1{font-size:25px;font-weight:650;letter-spacing:-.4px;line-height:1.25}
   .rec-scores{grid-column:1/-1;grid-row:2}
   .code-row{grid-template-columns:130px 1fr 62px;gap:8px 10px}
   .code-actions{grid-column:1/-1;justify-content:flex-start}
-  .member-row{grid-template-columns:30px 1fr 96px;gap:8px 10px}
+  .member-row{grid-template-columns:30px 1fr 84px 64px;gap:8px 10px}
   .member-row .m-time{display:none}
 }
 @media (max-width:1080px) and (min-width:761px){
@@ -1073,6 +1074,50 @@ end;
 $$;
 
 grant execute on function public.register_with_code(text, text, text) to anon, authenticated;
+
+-- 管理员在页面上删成员：一次调用删掉账号 + 档案 + 成绩
+create or replace function public.delete_member(p_username text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, extensions
+as $$
+declare
+  v_id uuid; v_name text; v_role text;
+begin
+  if (auth.jwt() -> 'app_metadata' ->> 'role') is distinct from 'admin' then
+    return jsonb_build_object('ok', false, 'error', '只有管理员可以删除账号');
+  end if;
+
+  select id, username, role into v_id, v_name, v_role
+    from public.profiles where lower(username) = lower(trim(p_username)) limit 1;
+
+  if v_id is null then
+    select id, username, role into v_id, v_name, v_role
+      from public.profiles where username like '%' || trim(p_username) || '%' limit 1;
+  end if;
+
+  if v_id is null then
+    return jsonb_build_object('ok', false, 'error', '没找到这个账号');
+  end if;
+
+  if v_role = 'admin' then
+    return jsonb_build_object('ok', false, 'error', '管理员账号不能在页面里删');
+  end if;
+
+  delete from public.grades   where user_id = v_id;
+  delete from public.profiles where id = v_id;
+  delete from auth.users      where id = v_id;
+
+  return jsonb_build_object('ok', true, 'username', v_name);
+exception
+  when others then
+    return jsonb_build_object('ok', false, 'error', sqlerrm);
+end;
+$$;
+
+revoke all on function public.delete_member(text) from public;
+grant execute on function public.delete_member(text) to authenticated;
 
 do $$
 declare
@@ -2585,7 +2630,10 @@ where not exists (select 1 from public.invite_codes where code = t.c);
                  '<div class="m-sub">注册于 ' + fmtStamp(m.created_at) + '</div>' +
                '</div>' +
                '<div><span class="role-tag ' + (admin ? 'admin' : 'student') + '">' + (admin ? '管理员' : '成员') + '</span></div>' +
-               '<div class="m-time code-note">密码不可查看</div>' +
+               '<div class="m-actions">' +
+                 (admin ? '<span class="code-note">不可删除</span>' :
+                   '<button class="mini-btn danger" data-delmember="' + esc(m.username) + '">删除</button>') +
+               '</div>' +
              '</div>';
     }).join('');
   }
@@ -3049,6 +3097,29 @@ where not exists (select 1 from public.invite_codes where code = t.c);
         .then(function(){ toast('已删除'); return loadAdminData(); })
         .catch(function(err){ toast('删除失败：' + err.message, true); });
     }
+  });
+
+  $('#memberList').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-delmember]');
+    if(!btn || btn.disabled) return;
+    var name = btn.dataset.delmember;
+    if(!confirm('删除账号「' + name + '」？\n\n它的成绩、档案和登录会一起删掉，删了恢复不了。')) return;
+    var old = btn.textContent;
+    btn.disabled = true; btn.textContent = '删除中…';
+    request('/rest/v1/rpc/delete_member', { method: 'POST', body: JSON.stringify({ p_username: name }) })
+      .then(function(r){
+        if(r && r.ok === false){
+          btn.disabled = false; btn.textContent = old;
+          toast(r.error || '删除失败', true);
+          return;
+        }
+        toast('已删除账号「' + name + '」');
+        return loadAdminData();
+      })
+      .catch(function(err){
+        btn.disabled = false; btn.textContent = old;
+        toast('删除失败：' + err.message, true);
+      });
   });
 
   // 初始化脚本
