@@ -441,7 +441,7 @@ h1{font-size:25px;font-weight:650;letter-spacing:-.4px;line-height:1.25}
 }
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .toast.warn{background:#b03a3a}
-.hidden{display:none}
+.hidden{display:none!important}
 
 @media (max-width:1080px){
   .main{padding:28px 26px 48px}
@@ -1403,6 +1403,9 @@ where not exists (select 1 from public.invite_codes where code = t.c);
     $('#viewSetup').classList.add('hidden');
     $('#viewAuth').classList.remove('hidden');
     $('#viewApp').classList.add('hidden');
+    if(window.scrollTo) window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
   }
   function showApp(){
     $('#viewSetup').classList.add('hidden');
@@ -1417,6 +1420,9 @@ where not exists (select 1 from public.invite_codes where code = t.c);
     });
     var map = { entry:'#viewEntry', records:'#viewRecords', analyze:'#viewAnalyze', admin:'#viewAdmin' };
     $(map[name] || '#viewEntry').classList.remove('hidden');
+    if(window.scrollTo) window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     Array.prototype.forEach.call(document.querySelectorAll('.nav-item'), function(n){
       n.classList.toggle('active', n.dataset.view === name);
     });
@@ -2549,7 +2555,7 @@ where not exists (select 1 from public.invite_codes where code = t.c);
   }
 
   function logout(){
-    signOutRemote().then(function(){
+    var finish = function(){
       clearSession();
       profile = null;
       records = [];
@@ -2559,7 +2565,8 @@ where not exists (select 1 from public.invite_codes where code = t.c);
       showAuth();
       setAuthMode('login');
       setAuthMsg('已退出登录', 'ok');
-    });
+    };
+    signOutRemote().then(finish, finish);
   }
 
   /* ================= 管理员：注册管理 ================= */
